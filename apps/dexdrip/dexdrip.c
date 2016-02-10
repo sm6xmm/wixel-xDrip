@@ -45,6 +45,8 @@
   LOCK NOW -> Lock to controlling number - commands will then ONLY be accepted from this number
   UNLOCK -> Release Lock
 
+  More documentation at https://jamorham.github.io/
+
 
   == Parameters ==
 radio_channel: See description in radio_link.h.
@@ -207,6 +209,7 @@ static XDATA uint32 waitTimes[NUM_CHANNELS] = { 13500, 500, 500, 500 };
 static XDATA uint32 delayedWaitTimes[NUM_CHANNELS] = { 0, 700, 700, 700 };
 static XDATA uint32 catch_offsets[NUM_CHANNELS] = { 0, 0, 0, 0 };
 
+static uint8 wake_error_count = 0;
 static uint8 last_catch_channel = 0;
 BIT needsTimingCalibration = 1;
 BIT usbEnabled = 1;
@@ -1434,7 +1437,7 @@ gsm_send_command_getdata (const char *command, const char *response, int timeout
         sprintf (stringBuffer, "&ts=%lu&bp=%d&bm=%d&ct=%d&gl=%s", (getMs () - lasttime), batteryPercent, batteryMillivolts, getCpuDegC(), lastLocation);
 #else
         sprintf (param, "%s?rr=%lu&zi=%lu&pc=%s&lv=%lu", settings.http_url,getMs (), dex_tx_id, settings.udp_port lastraw,
-	sprintf (stringBuffer,"&lf=%lu&ts=%lu&ct=%d&gl=%s",
+        sprintf (stringBuffer,"&lf=%lu&ts=%lu&ct=%d&gl=%s",
                  lastfiltered, (getMs () - lasttime), getCpuDegC(),lastLocation);
 #endif
         getdata=0;
@@ -1862,6 +1865,12 @@ void flashingError(int XDATA howlong,int XDATA flashspeed)
     }
     LED_RED(0); // lights off after error
     LED_YELLOW(0);
+
+    wake_error_count++;
+    if (wake_error_count > 2)
+	{
+	 killWithWatchdog ();
+	}
 }
 
 void
@@ -1945,14 +1954,18 @@ __reentrant
     delayMs (200);
 
     if (!gsm_send_command ("AT", "OK", 1))
-        if (!gsm_send_command ("AT", "OK", 1))
-        {
-            uart1TxSendByte (27); // ESC
-            if (!gsm_send_command ("AT", "OK", 2))
-            {
-                flashingError(20000,200); // double speed flash means could not wake
-            }
-        }
+	{
+    		delayMs (200);
+        	if (!gsm_send_command ("AT", "OK", 1))
+        	{
+            		uart1TxSendByte (27); // ESC
+    	    		delayMs (200);
+            		if (!gsm_send_command ("AT", "OK", 2))
+            		{
+              	 	 flashingError(20000,200); // double speed flash means could not wake
+            		} else { wake_error_count = 0; }
+        	} else { wake_error_count = 0; }
+	} else { wake_error_count = 0; }
 }
 
 void
@@ -2166,6 +2179,8 @@ main ()
     sleepInit ();
 
     lastLocation[0]='\0';
+
+    nicedelayMs (3000);		// extra sleep for grumpy sim800 units
 
     LED_GREEN (1);		// Green shows when connected usb
     //usbComRequestLineStateChangeNotification(LineStateChangeCallback);
