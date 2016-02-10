@@ -26,13 +26,12 @@ The Parakeet builds on the existing xDrip system with very similar design goals 
 ###How to get the Parakeet working?
 The easiest way to receive data from the Parakeet is using the [Google App Engine receiver](https://github.com/jamorham/Parakeet-App-Engine) - Instructions for setting this up are here: [Parakeet & Google App Engine Guide (PDF)](https://drive.google.com/file/d/0B6mvYVNVC-fObUxVSmZmdF9FRnc/view?usp=sharing)
 
-My personal research version of xDrip called xDrip+ has extra support for Parakeet features such as Geo-Location and Battery Status. The [xDrip+ project page is here.](https://jamorham.github.io/#xdrip-plus) Other links to information about the Parakeet including binary firmware images [are here.](https://jamorham.github.io/#parakeet)
+My personal research version of xDrip called xDrip+ has extra support for Parakeet features such as Geo-Location and Battery Status. [The xDrip+ project page is here.](https://jamorham.github.io/#xdrip-plus) Other links to information about the Parakeet including binary firmware images [are here.](https://jamorham.github.io/#parakeet)
 
 ###Why is it called Parakeet?
 The parakeet name was chosen for this unit as it is fully mobile (can fly like a bird) plus it listens and repeats the glucose sensor information (like parakeet speech mimicry). Shorter unique “nicknames” make referencing technical items easier and reduce confusion. The pet animal concept can make it more emotionally appealing, especially to children. The segments on the wings in the logo are a representation of the Yagi antenna of the Wixel board and the GSM antenna.
 
 ##Further Information
-
 To read more about the Parakeet design objectives, the research project of which it is a part, as well as safety and contact information, please see: [What is the Parakeet (PDF)](https://drive.google.com/file/d/0B6mvYVNVC-fOQU5XQS14NERwYjA/view?usp=sharing)
 
 ###Thanks
