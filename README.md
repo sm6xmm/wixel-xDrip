@@ -28,6 +28,8 @@ The easiest way to receive data from the Parakeet is using the [Google App Engin
 
 My personal research version of xDrip called xDrip+ has extra support for Parakeet features such as Geo-Location and Battery Status. [The xDrip+ project page is here.](https://jamorham.github.io/#xdrip-plus) Other links to information about the Parakeet including binary firmware images [are here.](https://jamorham.github.io/#parakeet)
 
+![](https://github.com/jamorham/zz-misc-jamorham/blob/master/blob/images/jamorham-parakeet-sim800-sim-orientation-redux.jpg)
+
 ###Why is it called Parakeet?
 The parakeet name was chosen for this unit as it is fully mobile (can fly like a bird) plus it listens and repeats the glucose sensor information (like parakeet speech mimicry). Shorter unique “nicknames” make referencing technical items easier and reduce confusion. The pet animal concept can make it more emotionally appealing, especially to children. The segments on the wings in the logo are a representation of the Yagi antenna of the Wixel board and the GSM antenna.
 
