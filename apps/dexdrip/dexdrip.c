@@ -45,6 +45,8 @@
   LOCK NOW -> Lock to controlling number - commands will then ONLY be accepted from this number
   UNLOCK -> Release Lock
 
+  More documentation at https://jamorham.github.io/
+
 
   == Parameters ==
 radio_channel: See description in radio_link.h.
@@ -120,6 +122,7 @@ void setADCInputs ();
 #define CODE_APN_POPULATE 93
 #define CODE_UDP_POPULATE 92
 #define CODE_UDP_CHECK 91
+#define CODE_WEB_REPLY 90
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -163,7 +166,7 @@ static volatile BIT status_lights = 1;	//
 static volatile BIT allow_alternate_usb_protocol = 1;
 // if set to 1 and plugged in to USB then protocol output is suitable for dexterity and similar
 
-// set use_gsm to 0 if you want to use parakeet codebase as USB/Wifi Wixel 
+// set use_gsm to 0 if you want to use parakeet codebase as USB/Wifi Wixel
 static volatile BIT use_gsm = 1;
 //                                                                                                  //
 //..................................................................................................//
@@ -207,6 +210,7 @@ static XDATA uint32 waitTimes[NUM_CHANNELS] = { 13500, 500, 500, 500 };
 static XDATA uint32 delayedWaitTimes[NUM_CHANNELS] = { 0, 700, 700, 700 };
 static XDATA uint32 catch_offsets[NUM_CHANNELS] = { 0, 0, 0, 0 };
 
+static uint8 wake_error_count = 0;
 static uint8 last_catch_channel = 0;
 BIT needsTimingCalibration = 1;
 BIT usbEnabled = 1;
@@ -216,7 +220,7 @@ static uint8 save_IEN0;
 static uint8 save_IEN1;
 static uint8 save_IEN2;
 
-static uint8 XDATA last_dex_battery = 0; 
+static uint8 XDATA last_dex_battery = 0;
 unsigned char XDATA PM2_BUF[7] = { 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x04 };
 unsigned char XDATA dmaDesc[8] =
 { 0x00, 0x00, 0xDF, 0xBE, 0x00, 0x07, 0x20, 0x42 };
@@ -271,7 +275,7 @@ typedef struct _parakeet_settings
 } parakeet_settings;
 
 parakeet_settings XDATA settings;
-int XDATA loop; 
+int XDATA loop;
 unsigned XDATA char* flash_pointer;
 long unsigned int chk;
 
@@ -418,14 +422,14 @@ __reentrant
     else if (c == '+')
         c = *s++;
     if ((base == 0 || base == 16) &&
-            c == '0' && (*s == 'x' || *s == 'X'))
+    c == '0' && (*s == 'x' || *s == 'X'))
     {
         c = s[1];
         s += 2;
         base = 16;
     }
     else if ((base == 0 || base == 2) &&
-             c == '0' && (*s == 'b' || *s == 'B'))
+    c == '0' && (*s == 'b' || *s == 'B'))
     {
         c = s[1];
         s += 2;
@@ -696,7 +700,7 @@ void loadSettingsFromFlash()
         clearSettings();
 
         // If custom transmitter_id has been compiled in then we don't wait for initial configuration
-        if (dex_tx_id != 10858926) // ABCDE
+        if (dex_tx_id != 10858926)   // ABCDE
         {
             settings.deepsleep=1;
         }
@@ -911,50 +915,6 @@ getSrcValue (char srcVal)
     return i & 0xFF;
 }
 
-void
-print_packet (Dexcom_packet * pPkt)
-{
-
-    lasttime = getMs ();
-    lastraw = dex_num_decoder (pPkt->raw);
-    lastfiltered = dex_num_decoder (pPkt->filtered) * 2;
-
-    uartEnable ();
-
-    if ((allow_alternate_usb_protocol == 0) || !usbPowerPresent ())
-    {
-
-        // Classic 3 field protocol for serial/bluetooth only
-        if (!use_gsm)
-            printf ("%lu %hhu %d", dex_num_decoder (pPkt->raw), pPkt->battery,
-                    adcConvertToMillivolts (adcRead (0)));
-
-    }
-    else
-    {
-
-        // Protocol suitable for dexterity android application or python script when running in USB mode
-        usb_printf ("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,
-                    dex_num_decoder (pPkt->raw),
-                    dex_num_decoder (pPkt->filtered) * 2, pPkt->battery,
-                    getPacketRSSI (pPkt), pPkt->txId,
-                    adcConvertToMillivolts (adcRead (0)));
-    }
-
-    gsm_delay = getMs ();
-    if (use_gsm)
-	{
-	last_dex_battery = pPkt->battery;
-        gsm_uplink ();		// send data via gsm / gprs
-	}
-    gsm_delay = (getMs () - gsm_delay) / 1000;
-
-
-    uartDisable ();
-
-
-
-}
 
 
 ///////// JAMORHAM GPRS / GSM MODEM FEATURE /////////////////
@@ -968,6 +928,7 @@ typedef struct _Serial_cmd
     const int getdata;
 } Serial_cmd;
 
+CODE Serial_cmd *gsm_cmd = full_gsm_cmd;
 
 #ifdef USE_SMS_CONTROL
 static const Serial_cmd CODE sms_cmd[] =
@@ -988,7 +949,6 @@ static const Serial_cmd CODE sms_cmd[] =
 };
 #endif
 
-CODE Serial_cmd *gsm_cmd = full_gsm_cmd;
 
 const Serial_cmd CODE full_gsm_cmd[] =
 {
@@ -1044,13 +1004,14 @@ const Serial_cmd CODE full_gsm_cmd[] =
     },
     {"AT+HTTPPARA=\"UA\",\"" my_user_agent "\"", "OK", 2},
     {"AT+HTTPACTION=0", "+HTTPACTION: 0,200,", 60},
-    {"AT+HTTPREAD", my_webservice_reply , 2},
+    {"AT+HTTPREAD", my_webservice_reply , 2, CODE_WEB_REPLY},
     {"AT+HTTPTERM", "OK", 2},
 #endif
 
 // end of sequence marker
     {"END", "END", 255}
 };
+
 
 #ifdef USE_SMS_CONTROL
 void sendStatus()
@@ -1229,7 +1190,7 @@ gsm_get_response (const char *response, int timeout, int getdata)
                                 }
                                 else
                                 {
-		                    sprintf(messageBuffer,"%s","Invalid Transmit command length");
+                                    sprintf(messageBuffer,"%s","Invalid Transmit command length");
                                     gsm_send_sms();
                                 }
 
@@ -1374,6 +1335,29 @@ read_line_of_data:
                             break;
 #endif
 
+                        case CODE_WEB_REPLY:
+                        {
+                            if (strlen(captureBuffer)>3)
+                            {
+#ifdef DEBUG
+                                usb_printf("WEB REPLY BUFFER: %c %s\r\n",captureBuffer[2],captureBuffer[3],captureBuffer);
+#endif
+                                if (captureBuffer[3]=='!')
+                                {
+                                    switch (captureBuffer[2])
+                                    {
+                                    case '2':
+#ifdef DEBUG
+                                        usb_printf("Stay awake command received\r\n");
+#endif
+                                        settings.deepsleep = 0;
+                                        break;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+
 
                         }
 
@@ -1391,7 +1375,8 @@ read_line_of_data:
                 return 1;
             }
         }
-        else {
+        else
+        {
             return 1;
         }
     }				// did we get a match
@@ -1410,6 +1395,68 @@ usb_printf (const char *format, ...)
     }
 }
 
+void
+print_packet (Dexcom_packet * pPkt)
+{
+
+    uint32 mlasttime;
+    lasttime = getMs ();
+    lastraw = dex_num_decoder (pPkt->raw);
+    lastfiltered = dex_num_decoder (pPkt->filtered) * 2;
+
+    uartEnable ();
+
+    if ((allow_alternate_usb_protocol == 0) || !usbPowerPresent ())
+    {
+
+        // Classic 3 field protocol for serial/bluetooth only
+        if (!use_gsm)
+            printf ("%lu %hhu %d", dex_num_decoder (pPkt->raw), pPkt->battery,
+                    adcConvertToMillivolts (adcRead (0)));
+
+    }
+    else
+    {
+
+        // Protocol suitable for dexterity android application or python script when running in USB mode
+        usb_printf ("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,
+                    dex_num_decoder (pPkt->raw),
+                    dex_num_decoder (pPkt->filtered) * 2, pPkt->battery,
+                    getPacketRSSI (pPkt), pPkt->txId,
+                    adcConvertToMillivolts (adcRead (0)));
+    }
+
+    gsm_delay = getMs ();
+    if (use_gsm)
+    {
+        last_dex_battery = pPkt->battery;
+        gsm_uplink ();		// send data via gsm / gprs
+
+        gsm_delay = (getMs () - gsm_delay) / 1000;
+
+#ifdef USE_SMS_CONTROL
+        if (!settings.deepsleep)
+        {
+            mlasttime = getMs();
+            while ((!settings.deepsleep) && (getMs()-mlasttime)<600000)
+            {
+                gsm_cmd = sms_cmd;
+                gsm_do_sequence();
+                nicedelayMs(3000);
+            }
+            gsm_cmd = full_gsm_cmd;
+            settings.deepsleep = 1;
+            gsm_sleep_mode();
+        }
+#endif
+    }
+
+
+    uartDisable ();
+
+
+
+}
 
 int
 gsm_send_command_getdata (const char *command, const char *response, int timeout, XDATA int getdata)
@@ -1430,12 +1477,12 @@ gsm_send_command_getdata (const char *command, const char *response, int timeout
         // HTTP SEND
 
 #ifdef GET_BATTERY_STATUS
-	sprintf (param,"%s?rr=%lu&zi=%lu&pc=%s&lv=%lu&lf=%lu&db=%hhu",settings.http_url, getMs (), dex_tx_id, settings.udp_port, lastraw, lastfiltered,last_dex_battery);
+        sprintf (param,"%s?rr=%lu&zi=%lu&pc=%s&lv=%lu&lf=%lu&db=%hhu",settings.http_url, getMs (), dex_tx_id, settings.udp_port, lastraw, lastfiltered,last_dex_battery);
         sprintf (stringBuffer, "&ts=%lu&bp=%d&bm=%d&ct=%d&gl=%s", (getMs () - lasttime), batteryPercent, batteryMillivolts, getCpuDegC(), lastLocation);
 #else
         sprintf (param, "%s?rr=%lu&zi=%lu&pc=%s&lv=%lu", settings.http_url,getMs (), dex_tx_id, settings.udp_port lastraw,
-	sprintf (stringBuffer,"&lf=%lu&ts=%lu&ct=%d&gl=%s",
-                 lastfiltered, (getMs () - lasttime), getCpuDegC(),lastLocation);
+                 sprintf (stringBuffer,"&lf=%lu&ts=%lu&ct=%d&gl=%s",
+                          lastfiltered, (getMs () - lasttime), getCpuDegC(),lastLocation);
 #endif
         getdata=0;
     }
@@ -1521,8 +1568,8 @@ gsm_send_sms()
     sprintf(composeBuffer,"AT+CMGS=\"%s\"" ,nfind);
     if (gsm_send_command_getdata(composeBuffer,">",3,0))
     {
-	gsm_send_command(messageBuffer,"",2);
-	return gsm_send_command_getdata(termMessage,"+CGMS:",10,0);
+        gsm_send_command(messageBuffer,"",2);
+        return gsm_send_command_getdata(termMessage,"+CGMS:",10,0);
     }
     else
     {
@@ -1575,7 +1622,7 @@ __reentrant
     {
         LED_YELLOW(0); // shut off any indicator led
         seconds = seconds - gsm_delay;
-        usb_printf ("Delay adjusted for gsm by %ld\r\n", gsm_delay);
+        usb_printf ("Sleep Delay adjusted for gsm by %ld\r\n", gsm_delay);
         gsm_delay = 0;
     }
 
@@ -1862,6 +1909,12 @@ void flashingError(int XDATA howlong,int XDATA flashspeed)
     }
     LED_RED(0); // lights off after error
     LED_YELLOW(0);
+
+    wake_error_count++;
+    if (wake_error_count > 2)
+    {
+        killWithWatchdog ();
+    }
 }
 
 void
@@ -1876,24 +1929,29 @@ configBt ()
             flashingError(20000,400);
         }
 
-#ifdef USE_SMS_CONTROL
-        while (!settings.deepsleep)
-        {
 #ifdef DEBUG
-            usb_printf("Checksums: calc %lu / stored = %lu / txid: %lu / USB: %hhu\r\n",chk,settings.checksum,dex_tx_id,usbDeviceState);
-            nicedelayMs(300);
+        gsm_interactive(); // for debug
 #endif
-            gsm_cmd = sms_cmd;
-            gsm_do_sequence();
-            nicedelayMs(3000);
+
+#ifdef USE_SMS_CONTROL
+        if (!settings.deepsleep)
+        {
+            gsm_wake_serial();
+            while (!settings.deepsleep)
+            {
+#ifdef DEBUG
+                usb_printf("Checksums: calc %lu / stored = %lu / txid: %lu / USB: %hhu\r\n",chk,settings.checksum,dex_tx_id,usbDeviceState);
+                nicedelayMs(300);
+#endif
+                gsm_cmd = sms_cmd;
+                gsm_do_sequence();
+                nicedelayMs(3000);
+            }
         }
 #endif
 
         gsm_cmd = full_gsm_cmd;
 
-#ifdef DEBUG
-        gsm_interactive(); // for debug
-#endif
     }
     else
     {
@@ -1945,14 +2003,27 @@ __reentrant
     delayMs (200);
 
     if (!gsm_send_command ("AT", "OK", 1))
+    {
+        delayMs (200);
         if (!gsm_send_command ("AT", "OK", 1))
         {
             uart1TxSendByte (27); // ESC
+            delayMs (300);
             if (!gsm_send_command ("AT", "OK", 2))
             {
                 flashingError(20000,200); // double speed flash means could not wake
             }
+            else
+            {
+                wake_error_count = 0;
+            }
         }
+        else
+        {
+            wake_error_count = 0;
+        }
+    }
+    else { wake_error_count = 0; }
 }
 
 void
@@ -2044,17 +2115,19 @@ gsm_do_sequence ()
     {
 
 #ifdef USE_UDP_UPLINK
-	// Skip UDP protocol if udp server starts with "disable"
-	if (gsm_cmd[i].getdata == CODE_UDP_CHECK)
-	{
-	usb_printf("Skipping UDP");
-	if (strncmp("disable",settings.udp_server,7)==0)
-	{
-	i=i+gsm_cmd[i].timeout;
-	} else {
-	i++;
-	}
-	}
+        // Skip UDP protocol if udp server starts with "disable"
+        if (gsm_cmd[i].getdata == CODE_UDP_CHECK)
+        {
+            usb_printf("Skipping UDP");
+            if (strncmp("disable",settings.udp_server,7)==0)
+            {
+                i=i+gsm_cmd[i].timeout;
+            }
+            else
+            {
+                i++;
+            }
+        }
 #endif
 
         if (gsm_cmd[i].timeout == 255)
@@ -2114,7 +2187,7 @@ gsm_do_sequence ()
     else
     {
         usb_printf ("GSM Sequence FAILURE\r\n");
-	gsm_send_command ("AT&F", "OK", 2);
+        gsm_send_command ("AT&F", "OK", 2);
         gsm_sleep_mode ();
         LED_RED (1);
         LED_GREEN (0);
@@ -2156,6 +2229,7 @@ __reentrant
 void
 main ()
 {
+
     systemInit ();
     LED_YELLOW(1);		// YELLOW LED STARTS DURING POWER ON
     initUart1 ();
@@ -2166,6 +2240,8 @@ main ()
     sleepInit ();
 
     lastLocation[0]='\0';
+
+    nicedelayMs (3000);		// extra sleep for grumpy sim800 units
 
     LED_GREEN (1);		// Green shows when connected usb
     //usbComRequestLineStateChangeNotification(LineStateChangeCallback);
